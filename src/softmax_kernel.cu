@@ -188,7 +188,7 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
     for (int i = 0; i < token_per_reduce; i++) {
       l_sum[i] = 0.f;
       for (int j = 0; j < ele_per_thread; j++) {
-        val[i][j] = __expf(val[i][j] - l_max[i]);
+        val[i][j] = __expf(val[i][j] - s_max[i]);
         l_sum[i] += val[i][j];
       }
     }    
@@ -216,7 +216,7 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
     }
    
     // END ASSIGN4_1_1
-  }  // blockIdx.x
+  }
 }
 
 /*
