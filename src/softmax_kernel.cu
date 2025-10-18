@@ -351,12 +351,36 @@ void launch_attn_softmax_bw(float *out_grad,
   
   // Launch kernel
   // Hint: use ker_attn_softmax_bw<float, ITERATIONS> depending on softmax_len
-  
+  if (softmax_len <= 32) {
+    ker_attn_softmax_bw<float, 1><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else if (softmax_len <= 64) {
+    ker_attn_softmax_bw<float, 2><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else if (softmax_len <= 128) {
+    ker_attn_softmax_bw<float, 4><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else if (softmax_len <= 256) {
+    ker_attn_softmax_bw<float, 8><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else if (softmax_len <= 512) {
+    ker_attn_softmax_bw<float, 16><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else if (softmax_len <= 1024) {
+    ker_attn_softmax_bw<float, 32><<<grid_dim, block_dim, 0, stream>>>(
+        out_grad, soft_inp, softmax_len);
+  } else {
+    throw std::runtime_error(
+        "Sequence length greater than 512 is currently not supported");
+  }
   // Copy back to the host
-  
+  cudaMemcpy(inp, d_inp, inp_size, cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
   
 
   // Free memory on device
+  cudaFree(d_inp);
+  cudaFree(d_attn_mask);
   // END ASSIGN4_1_2
 
 }}
