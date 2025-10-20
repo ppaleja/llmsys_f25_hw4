@@ -81,35 +81,22 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   __syncthreads();
 
 
-
-
-
   // Step 3 normalize and apply scale/bias, write outputs
   float4 *out_f4 = reinterpret_cast<float4 *>(ln_res) + blockIdx.x * hidden_size;
   const float4 *scale_f = reinterpret_cast<const float4 *>(scale);
   const float4 *bias_f  = reinterpret_cast<const float4 *>(bias);
 
+  // Load mean/var once per block (already written by thread 0) to avoid
+  // repeated global reads inside the per-thread loop.
+  float mean = means[blockIdx.x];
+  float var = vars[blockIdx.x];
+  float rstd = rsqrtf(var);
+
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    float4 val = inp_f4[idx];
-    float mean = means[blockIdx.x];
-    float var = vars[blockIdx.x];
-    float rstd = rsqrtf(var);
-
-    // Normalize
-    val.x = (val.x - mean) * rstd;
-    val.y = (val.y - mean) * rstd;
-    val.z = (val.z - mean) * rstd;
-    val.w = (val.w - mean) * rstd;
-
-    // Scale and shift
-    float4 s = scale_f[idx];
-    float4 b = bias_f[idx];
-    val.x = val.x * s.x + b.x;
-    val.y = val.y * s.y + b.y;
-    val.z = val.z * s.z + b.z;
-    val.w = val.w * s.w + b.w;
-
-    out_f4[idx] = val;
+    out_f4[idx].x = (inp_f4[idx].x - mean) * rstd * scale_f[idx].x + bias_f[idx].x;
+    out_f4[idx].y = (inp_f4[idx].y - mean) * rstd * scale_f[idx].y + bias_f[idx].y;
+    out_f4[idx].z = (inp_f4[idx].z - mean) * rstd * scale_f[idx].z + bias_f[idx].z;
+    out_f4[idx].w = (inp_f4[idx].w - mean) * rstd * scale_f[idx].w + bias_f[idx].w;
   }
   
   
