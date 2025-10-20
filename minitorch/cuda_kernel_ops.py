@@ -412,41 +412,41 @@ class CudaKernelOps(TensorOps):
     @staticmethod
     def layernorm_fw(inp: Tensor, gamma: Tensor, beta: Tensor):
       #   BEGIN ASSIGN4_2_1
-        batch_size, hidden_size = inp.shape
-        stream = torch.cuda.current_stream().cuda_stream
+      batch_size, hidden_size = inp.shape
+      stream = torch.cuda.current_stream().cuda_stream
 
-        # The compiled kernel exports `launch_layernorm` (no _fw suffix)
-        lib_layernorm.launch_layernorm.argtypes = [
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # ln_res_storage
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # vars_storage
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # means_storage
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # inp_storage
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # scale_storage
-            np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # bias_storage
-            ctypes.c_int,                                                            # batch_size
-            ctypes.c_int,                                                            # hidden_size
-            ctypes.c_void_p                                                           # stream
-        ]
-        lib_layernorm.launch_layernorm.restype = None
+      # The compiled kernel exports `launch_layernorm` (no _fw suffix)
+      lib_layernorm.launch_layernorm.argtypes = [
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # ln_res_storage
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # vars_storage
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # means_storage
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # inp_storage
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # scale_storage
+        np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),  # bias_storage
+        ctypes.c_int,                                                            # batch_size
+        ctypes.c_int,                                                            # hidden_size
+        ctypes.c_void_p                                                           # stream
+      ]
+      lib_layernorm.launch_layernorm.restype = None
 
-        ln_res = zeros(inp.shape, inp.backend)
-        # vars and means are per-row (one value per batch element)
-        vars = zeros((batch_size,), inp.backend)
-        means = zeros((batch_size,), inp.backend)
+      ln_res = zeros(inp.shape, inp.backend)
+      # vars and means are per-row (one value per batch element)
+      vars = zeros((batch_size,), inp.backend)
+      means = zeros((batch_size,), inp.backend)
 
-        lib_layernorm.launch_layernorm(
-            ln_res._tensor._storage,
-            vars._tensor._storage,
-            means._tensor._storage,
-            inp._tensor._storage,
-            gamma._tensor._storage,
-            beta._tensor._storage,
-            batch_size,
-            hidden_size,
-            stream
-        )
+      lib_layernorm.launch_layernorm(
+        ln_res._tensor._storage,
+        vars._tensor._storage,
+        means._tensor._storage,
+        inp._tensor._storage,
+        gamma._tensor._storage,
+        beta._tensor._storage,
+        batch_size,
+        hidden_size,
+        stream
+      )
 
-        return ln_res
+      return ln_res
 
     @staticmethod
     def layernorm_bw(out_grad: Tensor, inp: Tensor, gamma: Tensor, beta: Tensor, var: Tensor, mean: Tensor):

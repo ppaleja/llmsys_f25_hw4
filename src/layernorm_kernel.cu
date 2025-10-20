@@ -93,10 +93,12 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   float rstd = rsqrtf(var);
 
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-    out_f4[idx].x = (inp_f4[idx].x - mean) * rstd * scale_f[idx].x + bias_f[idx].x;
-    out_f4[idx].y = (inp_f4[idx].y - mean) * rstd * scale_f[idx].y + bias_f[idx].y;
-    out_f4[idx].z = (inp_f4[idx].z - mean) * rstd * scale_f[idx].z + bias_f[idx].z;
-    out_f4[idx].w = (inp_f4[idx].w - mean) * rstd * scale_f[idx].w + bias_f[idx].w;
+    float4 tmp;
+    tmp.x = (inp_f4[idx].x - mean) * rstd * scale_f[idx].x + bias_f[idx].x;
+    tmp.y = (inp_f4[idx].y - mean) * rstd * scale_f[idx].y + bias_f[idx].y;
+    tmp.z = (inp_f4[idx].z - mean) * rstd * scale_f[idx].z + bias_f[idx].z;
+    tmp.w = (inp_f4[idx].w - mean) * rstd * scale_f[idx].w + bias_f[idx].w;
+    out_f4[idx] = tmp;
   }
   
   
