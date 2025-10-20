@@ -59,14 +59,16 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   // σ_x = √(E[x²] - E[x]² + ε)
   
   
+  // reduce across the block: blockReduce only supports fixed template sizes
+  // here we have a single value per thread (summing across lanes), so use 1
   blockReduce<ReduceType::kSum, 1>(l_sum_x);
-  blockReduce<ReduceType::kSum, hidden_size>(l_sum_x2);
+  blockReduce<ReduceType::kSum, 1>(l_sum_x2);
 
 
   // Thread 0 finishes the math
   if (threadIdx.x == 0) {
-    float mean = l_sum_x / (hidden_size * 4)
-    float mean2 = l_sum_x2 / (hidden_size * 4);
+    float mean = l_sum_x[0] / (hidden_size * 4);
+    float mean2 = l_sum_x2[0] / (hidden_size * 4);
     float var = mean2 - mean * mean + LN_EPSILON;
     float rstd = rsqrtf(var);
 
@@ -74,7 +76,7 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
     vars[blockIdx.x] = var;
   }
 
-  ___syncthreads();
+  __syncthreads();
 
 
 
@@ -82,8 +84,8 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
 
   // Step 3 normalize and apply scale/bias, write outputs
   float4 *out_f4 = reinterpret_cast<float4 *>(ln_res) + blockIdx.x * hidden_size;
-  float4 *scale_f = reinterpret_cast<float4 *>(scale);
-  float4 *bias_f  = reinterpret_cast<float4 *>(bias);
+  const float4 *scale_f = reinterpret_cast<const float4 *>(scale);
+  const float4 *bias_f  = reinterpret_cast<const float4 *>(bias);
 
   for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float4 val = inp_f4[idx];
