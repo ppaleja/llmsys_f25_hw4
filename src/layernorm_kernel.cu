@@ -73,7 +73,6 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
     float mean = l_sum_x[0] / (hidden_size * 4);
     float mean2 = l_sum_x2[0] / (hidden_size * 4);
     float var = mean2 - mean * mean + LN_EPSILON;
-    float rstd = rsqrtf(var);
 
     means[blockIdx.x] = mean;
     vars[blockIdx.x] = var;
