@@ -44,19 +44,71 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   // 2. Compute reduce sum with blockReduce and add epsilon with LN_EPSILON
   // 3. Compute layernorm result with reinterpret_cast by casting to float4 for speedup
   
-  // Step 1
-  float l_sum = 0;
-  const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;  
+  // Step 1: Each thread within a block calculates partial sum of its assigned elements in @inp_f4
+  float l_sum_x = 0;
+  float l_sum_x2 = 0;
+  const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;
   for (uint idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float4 val = inp_f4[idx];
-    l_sum += val.x + val.y + val.z + val.w;
+    l_sum_x += val.x + val.y + val.z + val.w;
+    l_sum_x2 += val.x * val.x + val.y * val.y + val.z * val.z + val.w * val.w;
   }
 
   // Step 2
-
-  // Step 3
+  // Speedup can be achieved by computing the standard deviation as:
+  // σ_x = √(E[x²] - E[x]² + ε)
   
-  assert(false && "Not Implemented");
+  
+  blockReduce<ReduceType::kSum>(&l_sum_x);
+  blockReduce<ReduceType::kSum>(&l_sum_x2);
+
+
+  // Thread 0 finishes the math
+  if (threadIdx.x == 0) {
+    float mean = l_sum_x / (hidden_size * 4)
+    float mean2 = l_sum_x2 / (hidden_size * 4);
+    float var = mean2 - mean * mean + LN_EPSILON;
+    float rstd = rsqrtf(var);
+
+    means[blockIdx.x] = mean;
+    vars[blockIdx.x] = var;
+  }
+
+  ___syncthreads();
+
+
+
+
+
+  // Step 3 normalize and apply scale/bias, write outputs
+  float4 *out_f4 = reinterpret_cast<float4 *>(ln_res) + blockIdx.x * hidden_size;
+  float4 *scale_f = reinterpret_cast<float4 *>(scale);
+  float4 *bias_f  = reinterpret_cast<float4 *>(bias);
+
+  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+    float4 val = inp_f4[idx];
+    float mean = means[blockIdx.x];
+    float var = vars[blockIdx.x];
+    float rstd = rsqrtf(var);
+
+    // Normalize
+    val.x = (val.x - mean) * rstd;
+    val.y = (val.y - mean) * rstd;
+    val.z = (val.z - mean) * rstd;
+    val.w = (val.w - mean) * rstd;
+
+    // Scale and shift
+    float4 s = scale_f[idx];
+    float4 b = bias_f[idx];
+    val.x = val.x * s.x + b.x;
+    val.y = val.y * s.y + b.y;
+    val.z = val.z * s.z + b.z;
+    val.w = val.w * s.w + b.w;
+
+    out_f4[idx] = val;
+  }
+  
+  
   /// END ASSIGN4_2_1
 }
 
