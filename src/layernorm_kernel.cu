@@ -45,13 +45,15 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   // 3. Compute layernorm result with reinterpret_cast by casting to float4 for speedup
   
   // Step 1: Each thread within a block calculates partial sum of its assigned elements in @inp_f4
-  float l_sum_x[1];
-  float l_sum_x2[1];
+  // Initialize per-thread accumulators to zero to avoid reading uninitialized memory
+  float l_sum_x[1] = {0.0f};
+  float l_sum_x2[1] = {0.0f};
   const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;
   for (uint idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float4 val = inp_f4[idx];
-    l_sum_x[0] = val.x + val.y + val.z + val.w;
-    l_sum_x2[0] = val.x * val.x + val.y * val.y + val.z * val.z + val.w * val.w;
+    // Accumulate partial sums for this thread
+    l_sum_x[0] += val.x + val.y + val.z + val.w;
+    l_sum_x2[0] += val.x * val.x + val.y * val.y + val.z * val.z + val.w * val.w;
   }
 
   // Step 2
