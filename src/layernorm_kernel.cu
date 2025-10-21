@@ -44,19 +44,64 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
   // 2. Compute reduce sum with blockReduce and add epsilon with LN_EPSILON
   // 3. Compute layernorm result with reinterpret_cast by casting to float4 for speedup
   
-  // Step 1
-  float l_sum = 0;
-  const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;  
+  // Step 1: Each thread within a block calculates partial sum of its assigned elements in @inp_f4
+  // Initialize per-thread accumulators to zero to avoid reading uninitialized memory
+  // Use single-element arrays for l_sum_x and l_sum_x2 because blockReduce requires array arguments.
+  float l_sum_x[1] = {0.0f};
+  float l_sum_x2[1] = {0.0f};
+  const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;
   for (uint idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float4 val = inp_f4[idx];
-    l_sum += val.x + val.y + val.z + val.w;
+    // Accumulate partial sums for this thread
+    l_sum_x[0] += val.x + val.y + val.z + val.w;
+    l_sum_x2[0] += val.x * val.x + val.y * val.y + val.z * val.z + val.w * val.w;
   }
 
   // Step 2
-
-  // Step 3
+  // Speedup can be achieved by computing the standard deviation as:
+  // σ_x = √(E[x²] - E[x]² + ε)
   
-  assert(false && "Not Implemented");
+  
+  // reduce across the block: blockReduce only supports fixed template sizes
+  // here we have a single value per thread (summing across lanes), so use 1
+  blockReduce<ReduceType::kSum, 1>(l_sum_x);
+  blockReduce<ReduceType::kSum, 1>(l_sum_x2);
+
+
+  // Thread 0 finishes the math
+  if (threadIdx.x == 0) {
+    float mean = l_sum_x[0] / (hidden_size * 4);
+    float mean2 = l_sum_x2[0] / (hidden_size * 4);
+    float var = mean2 - mean * mean + LN_EPSILON;
+
+    means[blockIdx.x] = mean;
+    vars[blockIdx.x] = var;
+  }
+
+  __syncthreads();
+
+
+  // Step 3 normalize and apply scale/bias, write outputs
+  float4 *out_f4 = reinterpret_cast<float4 *>(ln_res) + blockIdx.x * hidden_size;
+  const float4 *scale_f = reinterpret_cast<const float4 *>(scale);
+  const float4 *bias_f  = reinterpret_cast<const float4 *>(bias);
+
+  // Load mean/var once per block (already written by thread 0) to avoid
+  // repeated global reads inside the per-thread loop.
+  float mean = means[blockIdx.x];
+  float var = vars[blockIdx.x];
+  float rstd = rsqrtf(var);
+
+  for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+    float4 tmp;
+    tmp.x = (inp_f4[idx].x - mean) * rstd * scale_f[idx].x + bias_f[idx].x;
+    tmp.y = (inp_f4[idx].y - mean) * rstd * scale_f[idx].y + bias_f[idx].y;
+    tmp.z = (inp_f4[idx].z - mean) * rstd * scale_f[idx].z + bias_f[idx].z;
+    tmp.w = (inp_f4[idx].w - mean) * rstd * scale_f[idx].w + bias_f[idx].w;
+    out_f4[idx] = tmp;
+  }
+  
+  
   /// END ASSIGN4_2_1
 }
 
