@@ -386,15 +386,24 @@ class Attn_Softmax(Function):
     @staticmethod
     def forward(ctx: Context, inp: Tensor, mask: Tensor) -> Tensor:
       #   BEGIN ASSIGN4_1_1
-      ctx.save_for_backward(mask)
+      ctx.save_for_backward(inp, mask)
       return inp.f.attn_softmax_fw(inp, mask)
       #   END ASSIGN4_1_1
 
     @staticmethod
-    def backward(ctx: Context, out_grad: Tensor) -> Tensor:
-      #   BEGIN ASSIGN4_1_2
-      raise NotImplementedError("Need to implement for Assignment 3")
-      #   END ASSIGN4_1_2
+    def backward(ctx: Context, out_grad: Tensor) -> Tuple[Tensor, Tensor]:
+        #   BEGIN ASSIGN4_1_2
+        # saved_values should contain the input and mask from forward
+        inp, mask = ctx.saved_values
+        # Compute gradient w.r.t. the input using backend fused kernel.
+        grad_inp = out_grad.f.attn_softmax_bw(out_grad, inp)
+        # Some backends may perform the update in-place and return None.
+        # Guard against that by falling back to the provided `out_grad`
+        # tensor (which was updated in-place by the kernel).
+        if grad_inp is None:
+            grad_inp = out_grad
+        return (grad_inp, mask.zeros(mask.shape))
+        #   END ASSIGN4_1_2
 
 
 class LayerNorm(Function):

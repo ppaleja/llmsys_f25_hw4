@@ -406,7 +406,36 @@ class CudaKernelOps(TensorOps):
     @staticmethod
     def attn_softmax_bw(out_grad: Tensor, soft_inp: Tensor):
       #   BEGIN ASSIGN4_1_2
-      raise("Not implemented")
+                batch_size, nhead, from_len, to_len = out_grad.shape
+                stream = torch.cuda.current_stream().cuda_stream
+
+                # C wrapper signature:
+                # void launch_attn_softmax_bw(float *out_grad, const float *soft_inp,
+                #                             int rows, int softmax_len,
+                #                             cudaStream_t stream)
+                lib_softmax.launch_attn_softmax_bw.argtypes = [
+                    np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
+                    np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
+                    ctypes.c_int,  # rows (batch_size * nhead * from_len)
+                    ctypes.c_int,  # softmax length (to_len)
+                    ctypes.c_void_p # stream
+                ]
+
+                lib_softmax.launch_attn_softmax_bw.restype = None
+
+                rows = batch_size * nhead * from_len
+                softmax_len = to_len
+
+                lib_softmax.launch_attn_softmax_bw(
+                    out_grad._tensor._storage,
+                    soft_inp._tensor._storage,
+                    rows,
+                    softmax_len,
+                    stream
+                )
+                # The kernel writes the gradient into out_grad in-place; return
+                # the Tensor so higher-level code receives a Tensor object.
+                return out_grad
       #   END ASSIGN4_1_2
 
     @staticmethod
@@ -451,6 +480,6 @@ class CudaKernelOps(TensorOps):
     @staticmethod
     def layernorm_bw(out_grad: Tensor, inp: Tensor, gamma: Tensor, beta: Tensor, var: Tensor, mean: Tensor):
       #   BEGIN ASSIGN4_2_2
-      raise("Not implemented")
+            raise NotImplementedError("Not implemented")
       #   END ASSIGN4_2_2
       
