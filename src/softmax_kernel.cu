@@ -381,7 +381,7 @@ void launch_attn_softmax_bw(float *out_grad,
         d_out_grad, d_soft_inp, softmax_len);
   } else {
     throw std::runtime_error(
-        "Sequence length greater than 512 is currently not supported");
+        "Sequence length greater than 1024 is currently not supported");
   }
   // Copy back to the host
   cudaMemcpy(out_grad, d_out_grad, rows * softmax_len * sizeof(float),
