@@ -135,8 +135,11 @@ class PowerScalar(Function):
             output : Tensor
                 Tensor containing the result of raising every element of a to scalar.
         """
-        # COPY FROM ASSIGN3
-        raise NotImplementedError
+        ### BEGIN YOUR SOLUTION
+        out = a.f.pow_scalar_zip(a, scalar)
+        ctx.save_for_backward(a, scalar)
+        return out
+        ### END YOUR SOLUTION
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, float]:
@@ -388,18 +391,27 @@ class Attn_Softmax(Function):
       #   END ASSIGN4_1_1
 
     @staticmethod
-    def backward(ctx: Context, out_grad: Tensor) -> Tensor:
-      #   BEGIN ASSIGN4_1_2
-      (inp, mask) = ctx.saved_values
-      return out_grad.f.attn_softmax_bw(out_grad, inp, mask)
-      #   END ASSIGN4_1_2
+    def backward(ctx: Context, out_grad: Tensor) -> Tuple[Tensor, Tensor]:
+        #   BEGIN ASSIGN4_1_2
+        # saved_values should contain the input and mask from forward
+        inp, mask = ctx.saved_values
+        # Compute gradient w.r.t. the input using backend fused kernel.
+        grad_inp = out_grad.f.attn_softmax_bw(out_grad, inp)
+        # Some backends may perform the update in-place and return None.
+        # Guard against that by falling back to the provided `out_grad`
+        # tensor (which was updated in-place by the kernel).
+        if grad_inp is None:
+            grad_inp = out_grad
+        return (grad_inp, mask.zeros(mask.shape))
+        #   END ASSIGN4_1_2
 
 
 class LayerNorm(Function):
     @staticmethod
     def forward(ctx: Context, inp: Tensor, gamma: Tensor, beta: Tensor) -> Tensor:
       #   BEGIN ASSIGN4_2_1
-      raise NotImplementedError("Need to implement for Assignment 3")
+      ctx.save_for_backward(gamma, beta)
+      return inp.f.layernorm_fw(inp, gamma, beta)
       #   END ASSIGN4_2_1
 
     @staticmethod

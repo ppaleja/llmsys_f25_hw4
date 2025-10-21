@@ -433,17 +433,20 @@ class CudaKernelOps(TensorOps):
                     softmax_len,
                     stream
                 )
+                # The kernel writes the gradient into out_grad in-place; return
+                # the Tensor so higher-level code receives a Tensor object.
+                return out_grad
       #   END ASSIGN4_1_2
 
     @staticmethod
     def layernorm_fw(inp: Tensor, gamma: Tensor, beta: Tensor):
       #   BEGIN ASSIGN4_2_1
-      raise("Not implemented")
+            raise NotImplementedError("Not implemented")
       #   END ASSIGN4_2_1
       
     @staticmethod
     def layernorm_bw(out_grad: Tensor, inp: Tensor, gamma: Tensor, beta: Tensor, var: Tensor, mean: Tensor):
       #   BEGIN ASSIGN4_2_2
-      raise("Not implemented")
+            raise NotImplementedError("Not implemented")
       #   END ASSIGN4_2_2
       

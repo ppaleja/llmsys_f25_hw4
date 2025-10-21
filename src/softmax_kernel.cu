@@ -347,40 +347,51 @@ void launch_attn_softmax_bw(float *out_grad,
   dim3 grid_dim((rows + warps_per_block - 1) / warps_per_block);
   dim3 block_dim(WARP_SIZE, warps_per_block);
   // BEGIN ASSIGN4_1_2
+
+  float *d_out_grad, *d_soft_inp;
+
+  cudaMalloc((void **)&d_out_grad, rows * softmax_len * sizeof(float));
+  cudaMalloc((void **)&d_soft_inp, rows * softmax_len * sizeof(float));
+
+  cudaMemcpy(d_out_grad, out_grad, rows * softmax_len * sizeof(float),
+                 cudaMemcpyHostToDevice);
+  cudaMemcpy(d_soft_inp, soft_inp, rows * softmax_len * sizeof(float),
+                 cudaMemcpyHostToDevice);
   
   
   // Launch kernel
   // Hint: use ker_attn_softmax_bw<float, ITERATIONS> depending on softmax_len
   if (softmax_len <= 32) {
     ker_attn_softmax_bw<float, 1><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else if (softmax_len <= 64) {
     ker_attn_softmax_bw<float, 2><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else if (softmax_len <= 128) {
     ker_attn_softmax_bw<float, 4><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else if (softmax_len <= 256) {
     ker_attn_softmax_bw<float, 8><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else if (softmax_len <= 512) {
     ker_attn_softmax_bw<float, 16><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else if (softmax_len <= 1024) {
     ker_attn_softmax_bw<float, 32><<<grid_dim, block_dim, 0, stream>>>(
-        out_grad, soft_inp, softmax_len);
+        d_out_grad, d_soft_inp, softmax_len);
   } else {
     throw std::runtime_error(
         "Sequence length greater than 512 is currently not supported");
   }
   // Copy back to the host
-  cudaMemcpy(inp, d_inp, inp_size, cudaMemcpyDeviceToHost);
+  cudaMemcpy(out_grad, d_out_grad, rows * softmax_len * sizeof(float),
+                 cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
   
 
   // Free memory on device
-  cudaFree(d_inp);
-  cudaFree(d_attn_mask);
+  cudaFree(d_out_grad);
+  cudaFree(d_soft_inp);
   // END ASSIGN4_1_2
 
 }}
