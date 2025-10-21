@@ -216,21 +216,87 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
   //      -> Now g.shfl_down helps you do so without consuming any shared memory. g.shfl_down makes it more efficient.
   // 4. Assign the final result to the correct position in the global output
 
-  __shared__ float betta_buffer[TILE_DIM][TILE_DIM];
+  // Shared memory arrays betta_buffer and gamma_buffer are declared to store intermediate results within the thread block.
+  
+  __shared__ float betta_buffer[TILE_DIM][TILE_DIM]; 
   __shared__ float gamma_buffer[TILE_DIM][TILE_DIM];
 
+  //CUDA thread blocks cg::thread_block and thread block tiles cg::thread_block_tile are used to organize threads.
+  // Block is TILE_DIM × TILE_DIM threads.
   cg::thread_block b = cg::this_thread_block();
   cg::thread_block_tile<TILE_DIM> g = cg::tiled_partition<TILE_DIM>(b);
 
-  // Step 1
+  // Step 1 Compute the partial gradients by looping across inp rows.
+  // Loop Over Rows: Threads in the y-dimension loop over rows,
+  // calculating partial gradients for each row based on the
+  // given inputs out_grad, inp, means, vars.
 
-  // Step 2
-  
-  // Step 3
-  
-  // Step 4
+  // Use scalar accumulators (no float4)
+  float partial_betta = 0.0f;
+  float partial_gamma = 0.0f;
 
-  assert(false && "Not Implemented");
+  // Compute column index in the global width
+  int col = blockIdx.x * TILE_DIM + threadIdx.x;
+
+  // Loop over rows (batch_size * seq_len). Threads stride by TILE_DIM in y.
+  for (int row = threadIdx.y; row < rows; row += TILE_DIM) {
+    if (col >= width) break; // this thread maps outside actual width
+
+    int idx = row * width + col;
+
+    // Load dout (out_grad)
+    float dout = out_grad[idx];
+
+    // Accumulate dbetta
+    partial_betta += dout;
+
+    // Compute xhat and accumulate dgamma
+    if (means != nullptr && vars != nullptr) {
+      // Use input and per-row mean/var
+      float inp_val = inp[idx];
+      float mean = means[row];
+      float var = vars[row];
+      float rstd = rsqrtf(var);
+      float xhat = (inp_val - mean) * rstd;
+      partial_gamma += xhat * dout;
+    } else {
+      // Use inp with gamma/betta per-column
+      float out_val = inp[idx]; // here inp is actually output because means is nullptr
+      float temp_g = gamma[col];
+      float temp_b = betta[col];
+      // Avoid division by zero if g==0 (unlikely in valid networks)
+      float xhat = (out_val - temp_b) / temp_g;
+      partial_gamma += xhat * dout;
+    }
+  }
+
+  // Step 2 Store the partial gradients in the shared memory arrays.
+  // Each thread writes its scalar partials into the shared tile at [tx][ty].
+  betta_buffer[threadIdx.x][threadIdx.y] = partial_betta;
+  gamma_buffer[threadIdx.x][threadIdx.y] = partial_gamma;
+
+  // Ensure all writes to shared memory are visible before reduction reads
+  __syncthreads();
+
+  // Step 2 Store the partial gradients in the shared memory arrays.
+  // Shared Memory Storage: The computed partial gradient values are 
+  // stored in shared memory arrays betta_buffer and gamma_buffer in a tiled manner.
+  
+  // Step 3 Compute the reduce sum of the shared memory arrays with g.shfl_down.
+  float betta_acc = betta_buffer[threadIdx.x][threadIdx.y];
+  float gamma_acc = gamma_buffer[threadIdx.x][threadIdx.y];
+  for (int i = g.size() / 2; i > 0; i /= 2) {
+    betta_acc += g.shfl_down(betta_acc, i);
+    gamma_acc += g.shfl_down(gamma_acc, i);
+  }
+
+  // Step 4 Assign the final result to the correct position in the global output.
+  if (g.thread_rank() == 0) {
+    betta_grad[blockIdx.x] = betta_acc;
+    gamma_grad[blockIdx.x] = gamma_acc;
+  }
+
+
   /// END ASSIGN4_2_2
 }
 
@@ -276,16 +342,94 @@ __global__ void ker_ln_bw_dinp(T *inp_grad, const T *out_grad, const T *inp,
   // 2. Compute xhat with reinterpret_cast by casting to float4 for speedup
   // 3. Compute reduce sum for dxhat and dxhat*xhat with blockReduce
   // 4. Compute final gradient
+
+  // Step 1. Compute dxhat=dy*w with reinterpret_cast by casting to float4 for speedup
+
+  // Initialization:   // Hint: Each thread is responsible for a specfic element in the inp_grad array
+  float4 *dy_f4 = reinterpret_cast<float4 *>(const_cast<T *>(out_grad)) + blockIdx.x * hidden_dim;
+  float4 *inp_f4 = reinterpret_cast<float4 *>(const_cast<T *>(inp)) + blockIdx.x * hidden_dim;
+
+  float4 *gamma_f4 = reinterpret_cast<float4 *>(const_cast<T *>(gamma));
+  float4 *betta_f4 = reinterpret_cast<float4 *>(const_cast<T *>(betta));
+
+  float4 dxhat;
   
-  // Step 1
- 
-  // Step 2
-   
-  // Step 3
- 
-  // Step 4
+  for (uint idx = threadIdx.x; idx < hidden_dim; idx += blockDim.x) {
+    float4 dy = dy_f4[idx];
+    float4 g = gamma_f4[idx];
+    dxhat.x = dy.x * g.x;
+    dxhat.y = dy.y * g.y;
+    dxhat.z = dy.z * g.z;
+    dxhat.w = dy.w * g.w;
+  }
+
+  // Step 2. Compute xhat with reinterpret_cast by casting to float4 for speedup
+  float4 *inp_f4 = reinterpret_cast<float4 *>(const_cast<T *>(inp)) + blockIdx.x * hidden_dim;
+  float4 xhat;
   
-  assert(false && "Not Implemented");
+  for (int idx = threadIdx.x; idx < hidden_dim; idx += blockDim.x) {
+    if (means != nullptr && vars != nullptr) {
+      // Use input and per-row mean/var
+      float mean = means[blockIdx.x];
+      float var = vars[blockIdx.x];
+      float rstd = rsqrtf(var);
+
+      float4 inp_val = inp_f4[idx];
+      xhat.x = (inp_val.x - mean) * rstd;
+      xhat.y = (inp_val.y - mean) * rstd;
+      xhat.z = (inp_val.z - mean) * rstd;
+      xhat.w = (inp_val.w - mean) * rstd;
+    } else {
+      // Use inp with gamma/betta per-column
+      float4 out_val = inp_f4[idx]; // here inp is actually output because means is nullptr
+      float4 temp_g = gamma_f4[idx];
+      float4 temp_b = betta_f4[idx];
+      // Avoid division by zero if g==0 (unlikely in valid networks)
+      xhat.x = (out_val.x - temp_b.x) / temp_g.x;
+      xhat.y = (out_val.y - temp_b.y) / temp_g.y;
+      xhat.z = (out_val.z - temp_b.z) / temp_g.z;
+      xhat.w = (out_val.w - temp_b.w) / temp_g.w;
+    }
+  }
+
+  // Step 3 Compute reduce sum for dxhat and dxhat*xhat with blockReduce
+  blockReduce<ReduceType::kSum, 4>(reinterpret_cast<float*>(dxhat));
+  blockReduce<ReduceType::kSum, 4>(reinterpret_cast<float*>(xhat));
+  __shared__ float s_dxhat;
+  __shared__ float s_dxhat_xhat;
+  if (threadIdx.x == 0) {
+    s_dxhat = reinterpret_cast<float*>(dxhat)[0];
+    s_dxhat_xhat = reinterpret_cast<float*>(dxhat_xhat)[0] * reinterpret_cast<float*>(xhat)[0];
+  }
+
+  __syncthreads();
+
+  // Step 4 Compute final gradient.
+  // dinp = (dxhat - (sum(dxhat) + xhat * sum(dxhat * xhat)) / (hidden_dim*4)) * rsqrt(var)
+
+  float rstd = rsqrtf(vars[blockIdx.x]);
+  int total = hidden_dim * 4; // total number of floats in the row
+  for (int i = threadIdx.x; i < total; i += blockDim.x) {
+    float dy = ((float*)out_grad)[blockIdx.x * total + i];
+    float g_val = ((float*)gamma)[i];
+    float dxhat = dy * g_val;
+    float xhat;
+    if (means != nullptr && vars != nullptr) {
+        float row_mean = means[blockIdx.x];
+        float var = vars[blockIdx.x];
+        float rstd_local = rsqrtf(var);
+        float inp_val = ((float*)inp)[blockIdx.x * total + i];
+        xhat = (inp_val - row_mean) * rstd_local;
+    } else {
+        float out_val = ((float*)inp)[blockIdx.x * total + i];
+        float b = ((float*)betta)[i];
+        xhat = (out_val - b) / g_val;
+    }
+    float result = (dxhat - (s_dxhat + xhat * s_xhat_dxhat) / ((float)total)) * rstd;
+    ((float*)inp_grad)[blockIdx.x * total + i] = result;
+  }
+
+  
   /// END ASSIGN4_2_2
 }
 extern "C" {
@@ -323,7 +467,7 @@ void launch_layernorm_bw(float *gamma_grad, float *betta_grad, float *inp_grad,
   // Compute grad of gamma and betta
   // This calculates the number of blocks needed to cover the data along the specified dimension, rounds it up.
   // The result is then multiplied by TILE_DIM to ensure that the grid size is a multiple of TILE_DIM.
-  dim3 grid_dim(((hidden_dim + TILE_DIM - 1) / TILE_DIM) * TILE_DIM);
+  dim3 grid_dim(((hidden_dim + TILE_DIM - 1) / TILE_DIM) * TILE_DIM); // So we are tiling along the hidden dim
   dim3 block_dim(TILE_DIM, TILE_DIM);
   ker_ln_bw_dgamma_dbetta<float><<<grid_dim, block_dim, 0, stream_1>>>(
       d_gamma_grad, d_betta_grad, d_out_grad, d_inp, d_gamma, d_betta, d_vars,
