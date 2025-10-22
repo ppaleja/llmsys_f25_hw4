@@ -419,7 +419,7 @@ __global__ void ker_ln_bw_dinp(T *inp_grad, const T *out_grad, const T *inp,
   // dinp = (dxhat - (sum(dxhat) + xhat * sum(dxhat * xhat)) / hidden_dim) * rsqrt(var)
   // Note: hidden_dim here is already divided by 4, so total elements = hidden_dim * 4
 
-  float rstd = rsqrtf(vars[blockIdx.x]);
+  float rstd = vars ? rsqrtf(vars[blockIdx.x]) : __fdividef(1.0f, gamma[blockIdx.x]);
   float total = (float)(hidden_dim * 4); // total number of floats in the row
 
   if (idx < hidden_dim) {
