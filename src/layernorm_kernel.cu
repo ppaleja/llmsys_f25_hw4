@@ -181,7 +181,6 @@ gridDim.x = hidden_size / 32
 blockDim.x = 32
 blockDim.y = 32
 
-/*
 @param
 gamma_grad: [hidden_size], gradient of gamma
 betta_grad: [hidden_size], gradient of betta
