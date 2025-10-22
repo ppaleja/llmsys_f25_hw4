@@ -160,16 +160,17 @@ class MultiHeadAttention(Module):
             # 2. Scale by sqrt(attn_hidden_dim)
             attention_scores = attention_scores / (q_dim ** 0.5)
             
-            # 3. Apply causal mask if needed and prepare mask for fused kernel
-            if self.causal:
-                mask = self.create_causal_mask(batch_size, num_head, queries_len)
-            else:
-                # Create zero mask if no causal masking is needed
-                mask = attention_scores.zeros(attention_scores.shape)
+            # 3. Prepare mask for fused kernel
+            # The fused kernel handles causal masking internally when is_dec_self_attn=True
+            # We only need to pass a padding mask of shape (batch_size, to_len)
+            # Since we don't have padding in this transformer, pass a zero mask
+            padding_mask = attention_scores.zeros((batch_size, queries_len))
             
-            # 4. Apply fused softmax kernel (modifies attention_scores in place)
+            # 4. Apply fused softmax kernel with causal masking enabled
             from .cuda_kernel_ops import CudaKernelOps
-            attention_weights = CudaKernelOps.attn_softmax_fw(attention_scores, mask)
+            attention_weights = CudaKernelOps.attn_softmax_fw(
+                attention_scores, padding_mask, is_dec_self_attn=self.causal
+            )
             
             # 5. Apply dropout
             attention_weights = self.dropout(attention_weights)
