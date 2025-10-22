@@ -233,7 +233,7 @@ class SimpleOps(TensorOps):
         raise NotImplementedError("Not implemented in this assignment")
 
     @staticmethod
-    def attn_softmax_fw(inp: Tensor, mask: Tensor):
+    def attn_softmax_fw(inp: Tensor, mask: Tensor, is_dec_self_attn: bool = False):
       raise NotImplementedError("Not implemented in this assignment")
 
     @staticmethod

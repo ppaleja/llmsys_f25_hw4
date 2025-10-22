@@ -179,3 +179,35 @@ class LayerNorm1d(Module):
         x_normalized = (x - mean.view(batch, 1)) / ((std + self.eps) ** 0.5).view(batch, 1)
         return self.weights.value * x_normalized + self.bias.value
         ### END ASSIGN3_2
+
+
+class FusedLayerNorm1d(Module):
+    def __init__(self, dim: int, eps: float, backend: TensorBackend):
+        super().__init__()
+        """Applies Layer Normalization using fused CUDA kernel over a mini-batch of 1-dimensional inputs.
+        
+        Args: 
+            dim : Expected size of the last dimension to apply layer normalization.
+            eps : A value added for numerical stability (note: not used by CUDA kernel which has its own epsilon).
+        
+        Attributes: 
+            weights : the learnable weights of the module of shape (self.dim, ) initialized to 1.
+            bias    : the learnable bias of the module of shape (self.dim, ) initialized to 0.
+        """
+        self.dim = dim
+        self.eps = eps
+        self.weights = Parameter(ones((dim,), backend=backend))
+        self.bias = Parameter(zeros((dim,), backend=backend))
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Applies Layer Normalization using fused CUDA kernel over a mini-batch of inputs. 
+        NOTE: You can assume the input to this layer is a 2D tensor of shape (batch_size, dim)
+        
+        Input: 
+            x - Tensor of shape (bs, dim)
+        
+        Output: 
+            output - Tensor of shape (bs, dim)
+        """
+        from .cuda_kernel_ops import CudaKernelOps
+        return CudaKernelOps.layernorm_fw(x, self.weights.value, self.bias.value)
