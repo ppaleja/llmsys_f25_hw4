@@ -8,7 +8,7 @@ from .modules_basic import (
     Linear
 )
 from .tensor_ops import TensorBackend
-from .tensor_functions import rand
+from .tensor_functions import rand, zeros, Attn_Softmax, LayerNorm
 from .nn import (
     max,
     softmax,
@@ -152,7 +152,36 @@ class MultiHeadAttention(Module):
             ### END ASSIGN3_3
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            # 1. Compute attention scores: q @ kT
+            attention_scores = q @ kT  # Shape: (batch_size, num_head, seq_len, seq_len)
+            
+            # 2. Scale by sqrt(attn_hidden_dim)
+            attention_scores = attention_scores / (q_dim ** 0.5)
+            
+            # 3. Apply causal mask if needed
+            if self.causal:
+                mask = self.create_causal_mask(batch_size, num_head, queries_len)
+                attention_scores = attention_scores + mask
+            
+            # 4. Create attention mask (for padding - zeros since causal is handled separately)
+            attn_mask = zeros((batch_size, queries_len), backend=self.backend)
+            
+            # 5. Call fused CUDA kernel for softmax via tensor function
+            attention_weights = attention_scores.attn_softmax(mask=attn_mask)
+            
+            # 6. Apply dropout
+            attention_weights = self.dropout(attention_weights)
+            
+            # 7. Multiply by values
+            attention_output = attention_weights @ v  # Shape: (batch_size, num_head, seq_len, attn_hidden_dim)
+            
+            # 8. Reshape: (batch_size, num_head, seq_len, attn_hidden_dim) -> (batch_size, seq_len, n_embd)
+            attention_output = attention_output.permute(0, 2, 1, 3).contiguous()
+            attention_output = attention_output.view(batch_size, queries_len, self.n_embd)
+            
+            # 9. Apply output projection
+            result = self.out_projection(attention_output.view(batch_size * queries_len, self.n_embd))
+            result = result.view(batch_size, queries_len, self.n_embd)
             # END ASSIGN3_3
 
         return result
@@ -271,7 +300,8 @@ class TransformerLayer(Module):
             ### END ASSIGN3_3
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            self.ln_1 = LayerNorm1d(n_embd, ln_eps, backend)
+            self.ln_2 = LayerNorm1d(n_embd, ln_eps, backend)
             # END ASSIGN3_3
 
     def forward(self, x):
@@ -300,7 +330,18 @@ class TransformerLayer(Module):
             ### END ASSIGN3_3
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            x_norm1 = x.view(batch_size * seq_len, x_dim).layernorm(self.ln_1.weights.value, self.ln_1.bias.value).view(batch_size, seq_len, x_dim)
+
+            # Apply multi-head attention
+            attn_out = self.attention(x_norm1)  # Shape: (batch_size, seq_len, x_dim)
+            x = x + attn_out  # Residual connection
+            
+            # Apply second layer normalization
+            x_norm2 = x.view(batch_size * seq_len, x_dim).layernorm(self.ln_2.weights.value, self.ln_2.bias.value).view(batch_size, seq_len, x_dim)
+
+            # Apply feed-forward network
+            ff_out = self.ff(x_norm2)  # Shape: (batch_size, seq_len, x_dim)
+            x = x + ff_out  # Residual connection
             # END ASSIGN3_3
 
         return x
@@ -364,7 +405,7 @@ class DecoderLM(Module):
             ### END ASSIGN3_3
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            self.ln = LayerNorm1d(n_embd, ln_eps, backend)
             # END ASSIGN3_3
         
     def forward(self, idx):
@@ -409,7 +450,31 @@ class DecoderLM(Module):
             ### END ASSIGN3_3
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            # 1. Token embeddings: (batch_size, seq_len, n_embd)
+            token_emb = self.token_embeddings(idx)
+
+            # 2. Positional embeddings: create ids (1, seq_len) and embed
+            position_ids = tensor_from_numpy(np.arange(seq_len, dtype=datatype).reshape(1, seq_len), backend=self.backend)
+            pos_emb = self.position_embeddings(position_ids)  # (1, seq_len, n_embd)
+
+            # 3. Add token and positional embeddings (broadcast pos_emb over batch)
+            x = token_emb + pos_emb
+
+            # 4. Dropout
+            x = self.dropout(x)
+
+            # 5. Transformer layers
+            x = self.t_layer_1(x)
+            x = self.t_layer_2(x)
+            x = self.t_layer_3(x)
+            x = self.t_layer_4(x)
+
+            # 6. Final layer norm expects 2D input: flatten tokens, apply norm, restore
+            x = x.view(batch_size * seq_len, self.n_embd).layernorm(self.ln.weights.value, self.ln.bias.value).view(batch_size, seq_len, self.n_embd)
+
+            # 7. Project to vocabulary logits
+            logits = self.lm_head(x)
+            return logits.view(batch_size, seq_len, self.n_vocab)
             # END ASSIGN3_3
 
         return x
