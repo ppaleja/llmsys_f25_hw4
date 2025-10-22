@@ -410,15 +410,25 @@ class LayerNorm(Function):
     @staticmethod
     def forward(ctx: Context, inp: Tensor, gamma: Tensor, beta: Tensor) -> Tensor:
       #   BEGIN ASSIGN4_2_1
-      ctx.save_for_backward(inp, gamma, beta)
-      return inp.f.layernorm_fw(inp, gamma, beta)
+      # Call forward - it computes vars and means internally
+      ln_res, vars, means = inp.f.layernorm_fw(inp, gamma, beta)
+      # Extract vars and means from intermediate computation
+      # We need to recompute them or they need to be returned from the kernel
+      # For now, compute them using numpy on the input
+      batch_size, hidden_size = inp.shape
+      ctx.save_for_backward(inp, gamma, beta, means, vars)
+      return ln_res
       #   END ASSIGN4_2_1
 
     @staticmethod
-    def backward(ctx: Context, out_grad: Tensor) -> Tensor:
+    def backward(ctx: Context, out_grad: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
       #   BEGIN ASSIGN4_2_2
-      raise NotImplementedError("Need to implement for Assignment 3")
+      inp, gamma, beta, mean, var = ctx.saved_values
+      # Call the backward kernel through the backend
+      inp_grad, gamma_grad, beta_grad = out_grad.f.layernorm_bw(out_grad, inp, gamma, beta, var, mean)
+      return inp_grad, gamma_grad, beta_grad
       #   END ASSIGN4_2_2
+
 
 
 # Helpers for Constructing tensors
