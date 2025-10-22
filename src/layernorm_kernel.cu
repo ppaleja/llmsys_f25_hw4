@@ -237,26 +237,27 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
   int col = blockIdx.x * TILE_DIM + threadIdx.y;
 
   // Loop over rows. g.thread_rank() is equivalent to threadIdx.x
-  for (int row = g.thread_rank(); row < rows; row += TILE_DIM) {
-    if (col >= width) break; // This tile is outside the actual width
+  if (col < width) {
+    for (int row = g.thread_rank(); row < rows; row += TILE_DIM) {
 
-    int idx = row * width + col;
-    float dout = out_grad[idx];
-    partial_betta += dout;
+      int idx = row * width + col;
+      float dout = out_grad[idx];
+      partial_betta += dout;
 
-    if (means != nullptr && vars != nullptr) {
-      float inp_val = inp[idx];
-      float mean = means[row];
-      float var = vars[row];
-      float rstd = rsqrtf(var);
-      float xhat = (inp_val - mean) * rstd;
-      partial_gamma += xhat * dout;
-    } else {
-      float out_val = inp[idx]; // here inp is output
-      float temp_g = gamma[col];
-      float temp_b = betta[col];
-      float xhat = (out_val - temp_b) / temp_g;
-      partial_gamma += xhat * dout;
+      if (means != nullptr && vars != nullptr) {
+        float inp_val = inp[idx];
+        float mean = means[row];
+        float var = vars[row];
+        float rstd = rsqrtf(var);
+        float xhat = (inp_val - mean) * rstd;
+        partial_gamma += xhat * dout;
+      } else {
+        float out_val = inp[idx]; // here inp is output
+        float temp_g = gamma[col];
+        float temp_b = betta[col];
+        float xhat = (out_val - temp_b) / temp_g;
+        partial_gamma += xhat * dout;
+      }
     }
   }
 
