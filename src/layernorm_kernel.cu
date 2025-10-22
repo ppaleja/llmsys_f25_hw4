@@ -77,8 +77,8 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
 
   // Thread 0 finishes the math
   if (threadIdx.x == 0) {
-    float mean = (l_sum_x[0] + l_sum_x[1] + l_sum_x[2] + l_sum[3]) / (hidden_size * 4);
-    float mean2 = (l_sum_x2[0] + l_sum_x2[1] + l_sum_x2[2] + l_sum[23]) / (hidden_size * 4);
+    float mean = (l_sum_x[0] + l_sum_x[1] + l_sum_x[2] + l_sum_x[3]) / (hidden_size * 4);
+    float mean2 = (l_sum_x2[0] + l_sum_x2[1] + l_sum_x2[2] + l_sum_x2[3]) / (hidden_size * 4);
     float var = mean2 - mean * mean + LN_EPSILON;
 
     means[blockIdx.x] = mean;
