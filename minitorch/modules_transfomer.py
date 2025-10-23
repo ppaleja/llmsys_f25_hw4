@@ -246,22 +246,24 @@ class FeedForward(Module):
         
         # Apply first linear layer
         x_2d = self.linear_in(x_2d)
-        
-        # Reshape back to 3D for GELU
-        x = x_2d.view(batch_size, seq_len, -1)
-        
+
+        # Reshape back to 3D for GELU. Compute the hidden dim explicitly
+        hidden_dim = x_2d.shape[1]
+        x = x_2d.view(batch_size, seq_len, hidden_dim)
+
         # Apply GELU activation
         x = GELU(x)
-        
+
         # Apply dropout
         x = self.dropout(x)
-        
-        # Reshape to 2D for second linear layer
-        x_2d = x.view(batch_size * seq_len, -1)
-        
+
+        # Reshape to 2D for second linear layer. Compute the hidden dim explicitly
+        hidden_dim2 = x.shape[2]
+        x_2d = x.view(batch_size * seq_len, hidden_dim2)
+
         # Apply second linear layer
         x_2d = self.linear_out(x_2d)
-        
+
         # Reshape back to 3D
         x = x_2d.view(batch_size, seq_len, n_embd)
         ### END ASSIGN3_3
@@ -469,10 +471,11 @@ class DecoderLM(Module):
             x = self.t_layer_3(x)
             x = self.t_layer_4(x)
 
-            # 6. Final layer norm expects 2D input: flatten tokens, apply norm, restore
-            x = x.view(batch_size * seq_len, self.n_embd).layernorm(self.ln.weights.value, self.ln.bias.value).view(batch_size, seq_len, self.n_embd)
+            # 6. Final layer norm expects 2D input: flatten tokens, apply norm
+            # Keep as 2D so the Linear (`lm_head`) receives a (N, n_embd) input.
+            x = x.view(batch_size * seq_len, self.n_embd).layernorm(self.ln.weights.value, self.ln.bias.value)
 
-            # 7. Project to vocabulary logits
+            # 7. Project to vocabulary logits (lm_head expects 2D input)
             logits = self.lm_head(x)
             return logits.view(batch_size, seq_len, self.n_vocab)
             # END ASSIGN3_3
