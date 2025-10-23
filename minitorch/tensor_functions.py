@@ -161,11 +161,9 @@ class PowerScalar(Function):
                 gradient_for_a must be the correct gradient, but just return 0.0 for the gradient of scalar.
         """
         a, scalar = ctx.saved_values
-        grad_a    = None
+        grad_a = grad_output * (scalar * (a ** (scalar - 1)))
         
         # COPY FROM ASSIGN3
-        raise NotImplementedError
-
         return (grad_a, 0.0)
 
 
@@ -187,8 +185,11 @@ class Tanh(Function):
             output : Tensor
                 Tensor containing the element-wise tanh of a.
         """
-        # COPY FROM ASSIGN3
-        raise NotImplementedError
+        ### BEGIN YOUR SOLUTION
+        out = a.f.tanh_map(a)
+        ctx.save_for_backward(out)
+        return out
+        ### END YOUR SOLUTION
     
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tensor:
@@ -206,8 +207,11 @@ class Tanh(Function):
             output : Tensor
                 gradient_for_a must be the correct element-wise gradient for tanh.
         """
-        # COPY FROM ASSIGN3
-        raise NotImplementedError
+        ### BEGIN YOUR SOLUTION
+        out = ctx.saved_values[0]
+        return grad_output * (-(out ** 2) + 1)
+        ### END YOUR SOLUTION
+
 
 
 class Sigmoid(Function):
