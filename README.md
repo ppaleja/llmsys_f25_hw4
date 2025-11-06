@@ -245,7 +245,7 @@ python project/run_machine_translation.py --use-fused-kernel True
 
 #### Fused Softmax
 - **Forward**: 
-  - Two-pass algorithm: (1) find max, (2) compute exp and sum, (3) normalize
+  - Three-stage algorithm: (1) find max, (2) compute exp and sum, (3) normalize
   - `ker_attn_softmax_lt32`: Warp-level reduction for short sequences (<32)
   - `ker_attn_softmax`: Block-level reduction using CUB library for longer sequences
   - Integrated attention mask support
